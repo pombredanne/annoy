@@ -12,44 +12,79 @@
 // License for the specific language governing permissions and limitations under
 // the License.
 
-#include "Python.h"
+#ifndef ANNOYLIB_H
+#define ANNOYLIB_H
+
 #include <stdio.h>
 #include <string>
-#include <boost/python.hpp>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <fcntl.h>
+
+#ifdef __MINGW32__
+#include "mman.h"
+#include <windows.h>
+#else
 #include <sys/mman.h>
+#endif
+
 #include <string.h>
 #include <math.h>
 #include <vector>
 #include <queue>
 #include <limits>
+#include <boost/version.hpp>
 #include <boost/random.hpp>
 #include <boost/random/normal_distribution.hpp>
 #include <boost/random/uniform_01.hpp>
 #include <boost/random/bernoulli_distribution.hpp>
 
-using namespace std;
-using namespace boost;
+// This allows others to supply their own logger / error printer without
+// requiring Annoy to import their headers. See RcppAnnoy for a use case.
+#ifndef __ERROR_PRINTER_OVERRIDE__
+  #define showUpdate(...) { fprintf(stderr, __VA_ARGS__ ); }
+#else
+  #define showUpdate(...) { __ERROR_PRINTER_OVERRIDE__( __VA_ARGS__ ); }
+#endif
+
+#ifndef NO_PACKED_STRUCTS
+#define PACKED_STRUCTS_EXTRA __attribute__((__packed__))
+// TODO: this is turned on by default, but may not work for all architectures! Need to investigate.
+#endif
+
+using std::vector;
+using std::string;
+using std::pair;
+using std::numeric_limits;
+using std::make_pair;
+using boost::variate_generator;
+using boost::uniform_01;
+
+#if BOOST_VERSION > 1004400
+#define BOOST_RANDOM boost::random
+#else
+#define BOOST_RANDOM boost
+#endif
 
 template<typename T>
 struct Randomness {
   // Just a dummy class to avoid code repetition.
   // Owned by the AnnoyIndex, passed around to the distance metrics
-  mt19937 _rng;
-  normal_distribution<T> _nd;
-  variate_generator<mt19937&, 
-		    normal_distribution<T> > _var_nor;
+
+  BOOST_RANDOM::mt19937 _rng;
+  BOOST_RANDOM::normal_distribution<T> _nd;
+  variate_generator<BOOST_RANDOM::mt19937&, 
+                    BOOST_RANDOM::normal_distribution<T> > _var_nor;
   uniform_01<T> _ud;
-  variate_generator<mt19937&, 
-		    uniform_01<T> > _var_uni;
-  bernoulli_distribution<T> _bd;
-  variate_generator<mt19937&, 
-		    bernoulli_distribution<T> > _var_ber;
+  variate_generator<BOOST_RANDOM::mt19937&, 
+                    uniform_01<T> > _var_uni;
+  BOOST_RANDOM::bernoulli_distribution<T> _bd;
+  variate_generator<BOOST_RANDOM::mt19937&, 
+                    BOOST_RANDOM::bernoulli_distribution<T> > _var_ber;
+
   Randomness() : _rng(), _nd(), _var_nor(_rng, _nd), _ud(), _var_uni(_rng, _ud), _bd(), _var_ber(_rng, _bd) {}
   inline T gaussian() {
     return _var_nor();
@@ -73,9 +108,9 @@ inline void normalize(T* v, int f) {
 }
 
 
-template<typename T>
+template<typename S, typename T>
 struct Angular {
-  struct __attribute__((__packed__)) node {
+  struct PACKED_STRUCTS_EXTRA node {
     /*
      * We store a binary tree where each node has two things
      * - A vector associated with it
@@ -90,9 +125,9 @@ struct Angular {
      * Note that we can't really do sizeof(node<T>) because we cheat and allocate
      * more memory to be able to fit the vector outside
      */
-    int n_descendants;
-    int children[2]; // Will possibly store more than 2
-    T v[0]; // Hack. We just allocate as much memory as we need and let this array overflow
+    S n_descendants;
+    S children[2]; // Will possibly store more than 2
+    T v[1]; // We let this one overflow intentionally. Need to allocate at least 1 to make GCC happy
   };
   static inline T distance(const T* x, const T* y, int f) {
     // want to calculate (a/|a| - b/|b|)^2
@@ -128,13 +163,13 @@ struct Angular {
   }
 };
 
-template<typename T>
+template<typename S, typename T>
 struct Euclidean {
   struct __attribute__((__packed__)) node {
-    int n_descendants;
+    S n_descendants;
     T a; // need an extra constant term to determine the offset of the plane
-    int children[2];
-    T v[0];
+    S children[2];
+    T v[1];
   };
   static inline T distance(const T* x, const T* y, int f) {
     T d = 0.0;
@@ -165,30 +200,30 @@ struct Euclidean {
     double max_proj = 0.0;
     for (int step = 0; step < 10; step++) {
       for (int z = 0; z < f; z++)
-	v[z] = random->gaussian();
+        v[z] = random->gaussian();
       normalize(v, f);
       // Project the nodes onto the vector and calculate max and min
       T min = INFINITY, max = -INFINITY;
       for (size_t i = 0; i < nodes.size(); i++) {
-	T dot = 0;
-	for (int z = 0; z < f; z++)
-	  dot += nodes[i]->v[z] * v[z];
-	if (dot > max)
-	  max = dot;
-	if (dot < min)
-	  min = dot;
+        T dot = 0;
+        for (int z = 0; z < f; z++)
+          dot += nodes[i]->v[z] * v[z];
+        if (dot > max)
+          max = dot;
+        if (dot < min)
+          min = dot;
       }
       if (max - min > random->uniform(0, max_proj)) {
-	max_proj = max - min;
-	memcpy(n->v, v, sizeof(T) * f);
-	n->a = -random->uniform(min, max); // Take a random split along this axis
+        max_proj = max - min;
+        memcpy(n->v, v, sizeof(T) * f);
+        n->a = -random->uniform(min, max); // Take a random split along this axis
       }
     }
     free(v);
   }
 };
 
-template<typename T, typename Distance>
+template<typename S, typename T, typename Distance>
 class AnnoyIndex {
   /*
    * We use random projection to build a forest of binary trees of all items.
@@ -200,34 +235,39 @@ class AnnoyIndex {
 protected:
   int _f;
   size_t _s;
-  int _n_items;
+  S _n_items;
   Randomness<T> _random;
   void* _nodes; // Could either be mmapped, or point to a memory buffer that we reallocate
-  int _n_nodes;
-  int _nodes_size;
-  vector<int> _roots;
-  int _K;
+  S _n_nodes;
+  S _nodes_size;
+  vector<S> _roots;
+  S _K;
   bool _loaded;
+  bool _verbose;
 public:
   AnnoyIndex(int f) : _random() {
     _f = f;
-    _s = sizeof(typename Distance::node) + sizeof(T) * f; // Size of each node
+    _s = sizeof(typename Distance::node) + sizeof(T) * (f - 1); // Size of each node
+    // Note that we need to subtract one because we already allocated it
     _n_items = 0;
     _n_nodes = 0;
     _nodes_size = 0;
     _nodes = NULL;
     _loaded = false;
+    _verbose = false;
 
-    _K = (sizeof(T) * f + sizeof(int) * 2) / sizeof(int);
+    _K = (sizeof(T) * f + sizeof(S) * 2) / sizeof(S);
   }
   ~AnnoyIndex() {
-    if (!_loaded && _nodes) {
+    if (_loaded) {
+      unload();
+    } else if(_nodes) {
       free(_nodes);
     }
   }
 
-  void add_item(int item, const T* w) {
-    _allocate_size(item+1);
+  void add_item(S item, const T* w) {
+    _allocate_size(item + 1);
     typename Distance::node* n = _get(item);
 
     n->children[0] = 0;
@@ -245,30 +285,32 @@ public:
     _n_nodes = _n_items;
     while (1) {
       if (q == -1 && _n_nodes >= _n_items * 2)
-	break;
+        break;
       if (q != -1 && _roots.size() >= (size_t)q)
-	break;
-      fprintf(stderr, "pass %zd...\n", _roots.size());
+        break;
+      if (_verbose) showUpdate("pass %zd...\n", _roots.size());
 
-      vector<int> indices;
-      for (int i = 0; i < _n_items; i++)
-	indices.push_back(i);
+      vector<S> indices;
+      for (S i = 0; i < _n_items; i++)
+        indices.push_back(i);
 
       _roots.push_back(_make_tree(indices));
     }
     // Also, copy the roots into the last segment of the array
     // This way we can load them faster without reading the whole file
-    _allocate_size(_n_nodes + _roots.size());
+    _allocate_size(_n_nodes + (S)_roots.size());
     for (size_t i = 0; i < _roots.size(); i++)
-      memcpy(_get(_n_nodes + i), _get(_roots[i]), _s);
+      memcpy(_get(_n_nodes + (S)i), _get(_roots[i]), _s);
     _n_nodes += _roots.size();
-      
-    fprintf(stderr, "has %d nodes\n", _n_nodes);
+
+    if (_verbose) showUpdate("has %d nodes\n", _n_nodes);
   }
 
-  void save(const string& filename) {
+  bool save(const string& filename) {
     FILE *f = fopen(filename.c_str(), "w");
-    
+    if (f == NULL)
+      return false;
+
     fwrite(_nodes, _s, _n_nodes, f);
 
     fclose(f);
@@ -279,14 +321,30 @@ public:
     _nodes_size = 0;
     _nodes = NULL;
     _roots.clear();
-    load(filename);
+    return load(filename);
   }
 
-  void load(const string& filename) {
-    struct stat buf;
-    stat(filename.c_str(), &buf);
-    off_t size = buf.st_size;
+  void reinitialize() {
+    _nodes = NULL;
+    _loaded = false;
+    _n_items = 0;
+    _n_nodes = 0;
+    _nodes_size = 0;
+    _roots.clear();
+  }
+
+  void unload() {
+    off_t size = _n_nodes * _s;
+    munmap(_nodes, size);
+    reinitialize();
+    if (_verbose) showUpdate("unloaded\n");
+  }
+
+  bool load(const string& filename) {
     int fd = open(filename.c_str(), O_RDONLY, (mode_t)0400);
+    if (fd == -1)
+      return false;
+    off_t size = lseek(fd, 0, SEEK_END);
 #ifdef MAP_POPULATE
     _nodes = (typename Distance::node*)mmap(
         0, size, PROT_READ, MAP_SHARED | MAP_POPULATE, fd, 0);
@@ -295,73 +353,79 @@ public:
         0, size, PROT_READ, MAP_SHARED, fd, 0);
 #endif
 
-    _n_nodes = size / _s;
+    _n_nodes = (S)(size / _s);
 
     // Find the roots by scanning the end of the file and taking the nodes with most descendants
-    int m = -1;
-    for (int i = _n_nodes - 1; i >= 0; i--) {
-      int k = _get(i)->n_descendants;
+    S m = -1;
+    for (S i = _n_nodes - 1; i >= 0; i--) {
+      S k = _get(i)->n_descendants;
       if (m == -1 || k == m) {
-	_roots.push_back(i);
-	m = k;
+        _roots.push_back(i);
+        m = k;
       } else {
-	break;
+        break;
       }
     }
     _loaded = true;
     _n_items = m;
-    fprintf(stderr, "found %lu roots with degree %d\n", _roots.size(), m);
+    if (_verbose) showUpdate("found %lu roots with degree %d\n", _roots.size(), m);
+    return true;
   }
 
-  inline T get_distance(int i, int j) {
+  inline T get_distance(S i, S j) {
     const T* x = _get(i)->v;
     const T* y = _get(j)->v;
     return Distance::distance(x, y, _f);
   }
 
-  void get_nns_by_item(int item, size_t n, vector<int>* result) {
+  void get_nns_by_item(S item, size_t n, vector<S>* result) {
     const typename Distance::node* m = _get(item);
     _get_all_nns(m->v, n, result);
   }
 
-  void get_nns_by_vector(const T* w, size_t n, vector<int>* result) {
+  void get_nns_by_vector(const T* w, size_t n, vector<S>* result) {
     _get_all_nns(w, n, result);
   }
-  int get_n_items() {
+  S get_n_items() {
     return _n_items;
   }
+  void verbose(bool v) {
+    _verbose = v;
+  }
+
 protected:
-  void _allocate_size(int n) {
+  void _allocate_size(S n) {
     if (n > _nodes_size) {
-      int new_nodes_size = (_nodes_size + 1) * 2;
+      S new_nodes_size = (_nodes_size + 1) * 2;
       if (n > new_nodes_size)
-	new_nodes_size = n;
+        new_nodes_size = n;
       _nodes = realloc(_nodes, _s * new_nodes_size);
       memset((char *)_nodes + (_nodes_size * _s)/sizeof(char), 0, (new_nodes_size - _nodes_size) * _s);
       _nodes_size = new_nodes_size;
     }
   }
 
-  inline typename Distance::node* _get(int i) {
+  inline typename Distance::node* _get(S i) {
     return (typename Distance::node*)((char *)_nodes + (_s * i)/sizeof(char));
   }
 
-  int _make_tree(const vector<int >& indices) {
+  S _make_tree(const vector<S >& indices) {
     if (indices.size() == 1)
       return indices[0];
 
     _allocate_size(_n_nodes + 1);
-    int item = _n_nodes++;
+    S item = _n_nodes++;
     typename Distance::node* m = _get(item);
-    m->n_descendants = indices.size();
+    m->n_descendants = (S)indices.size();
 
     if (indices.size() <= (size_t)_K) {
-      for (size_t i = 0; i < indices.size(); i++)
-	m->children[i] = indices[i];
+      // Using std::copy instead of a loop seems to resolve issues #3 and #13,
+      // probably because gcc 4.8 goes overboard with optimizations.
+      copy(indices.begin(), indices.end(), m->children);
       return item;
     }
 
-    vector<int> children_indices[2];
+    vector<S> children_indices[2];
     for (int attempt = 0; attempt < 20; attempt ++) {
       /*
        * Create a random hyperplane.
@@ -373,55 +437,55 @@ protected:
       vector<typename Distance::node*> children;
 
       for (size_t i = 0; i < indices.size(); i++) {
-	// TODO: this loop isn't needed for the angular distance, because
-	// we can just split by a random vector and it's fine. For Euclidean
-	// distance we need it to calculate the offset
-	int j = indices[i];
-	typename Distance::node* n = _get(j);
-	if (n)
-	  children.push_back(n);
+        // TODO: this loop isn't needed for the angular distance, because
+        // we can just split by a random vector and it's fine. For Euclidean
+        // distance we need it to calculate the offset
+        S j = indices[i];
+        typename Distance::node* n = _get(j);
+        if (n)
+          children.push_back(n);
       }
 
       Distance::create_split(children, _f, &_random, m);
-      
+
       children_indices[0].clear();
       children_indices[1].clear();
 
       for (size_t i = 0; i < indices.size(); i++) {
-	int j = indices[i];
-	typename Distance::node* n = _get(j);
-	if (n) {
-	  bool side = Distance::side(m, n->v, _f, &_random);
-	  children_indices[side].push_back(j);
-	}
+        S j = indices[i];
+        typename Distance::node* n = _get(j);
+        if (n) {
+          bool side = Distance::side(m, n->v, _f, &_random);
+          children_indices[side].push_back(j);
+        }
       }
 
       if (children_indices[0].size() > 0 && children_indices[1].size() > 0) {
-	break;
+        break;
       }
     }
 
     while (children_indices[0].size() == 0 || children_indices[1].size() == 0) {
       // If we didn't find a hyperplane, just randomize sides as a last option
-      if (indices.size() > 100000)
-	fprintf(stderr, "Failed splitting %lu items\n", indices.size());
+      if (_verbose && indices.size() > 100000)
+        showUpdate("Failed splitting %lu items\n", indices.size());
 
       children_indices[0].clear();
       children_indices[1].clear();
 
       // Set the vector to 0.0
       for (int z = 0; z < _f; z++)
-	m->v[z] = 0.0;
+        m->v[z] = 0.0;
 
       for (size_t i = 0; i < indices.size(); i++) {
-	int j = indices[i];
-	// Just randomize...
-	children_indices[_random.flip()].push_back(j);
+        S j = indices[i];
+        // Just randomize...
+        children_indices[_random.flip()].push_back(j);
       }
     }
 
-    int children_0 = _make_tree(children_indices[0]);
-    int children_1 = _make_tree(children_indices[1]);
+    S children_0 = _make_tree(children_indices[0]);
+    S children_1 = _make_tree(children_indices[1]);
 
     // We need to fetch m again because it might have been reallocated
     m = _get(item);
@@ -431,7 +495,7 @@ protected:
     return item;
   }
 
-  void _get_nns(const T* v, int i, vector<int>* result, int limit) {
+  void _get_nns(const T* v, S i, vector<S>* result, S limit) {
     const typename Distance::node* n = _get(i);
 
     if (n->n_descendants == 0) {
@@ -439,52 +503,49 @@ protected:
     } else if (n->n_descendants == 1) {
       result->push_back(i);
     } else if (n->n_descendants <= _K) {
-      for (int j = 0; j < n->n_descendants; j++) {
-	result->push_back(n->children[j]);
-      }
+      const S* dst = n->children;
+      result->insert(result->end(), n->children, &dst[n->descendants]);
     } else {
       bool side = Distance::side(n, v, _f, &_random);
 
       _get_nns(v, n->children[side], result, limit);
       if (result->size() < (size_t)limit)
-	_get_nns(v, n->children[!side], result, limit);
+        _get_nns(v, n->children[!side], result, limit);
     }
   }
 
-  void _get_all_nns(const T* v, size_t n, vector<int>* result) {
-    std::priority_queue<pair<T, int> > q;
+  void _get_all_nns(const T* v, size_t n, vector<S>* result) {
+    std::priority_queue<pair<T, S> > q;
 
     for (size_t i = 0; i < _roots.size(); i++) {
       q.push(make_pair(numeric_limits<T>::infinity(), _roots[i]));
     }
 
-    vector<int> nns;
+    vector<S> nns;
     while (nns.size() < n * _roots.size() && !q.empty()) {
-      const pair<T, int>& top = q.top();
-      int i = top.second;
-      const typename Distance::node* n = _get(top.second);
+      const pair<T, S>& top = q.top();
+      S i = top.second;
+      const typename Distance::node* nd = _get(top.second);
       q.pop();
-      if (n->n_descendants == 1) {
-	nns.push_back(i);
-      } else if (n->n_descendants <= _K) {
-	for (int x = 0; x < n->n_descendants; x++) {
-	  int j = n->children[x];
-	  nns.push_back(j);
-	}	
-      } else{
-	T margin = Distance::margin(n, v, _f);
-	q.push(make_pair(+margin, n->children[1]));
-	q.push(make_pair(-margin, n->children[0]));
+      if (nd->n_descendants == 1) {
+        nns.push_back(i);
+      } else if (nd->n_descendants <= _K) {
+	const S* dst = nd->children;
+	nns.insert(nns.end(), nd->children, &dst[nd->n_descendants]);
+      } else {
+        T margin = Distance::margin(nd, v, _f);
+        q.push(make_pair(+margin, nd->children[1]));
+        q.push(make_pair(-margin, nd->children[0]));
       }
     }
 
     sort(nns.begin(), nns.end());
-    vector<pair<T, int> > nns_dist;
-    int last = -1;
+    vector<pair<T, S> > nns_dist;
+    S last = -1;
     for (size_t i = 0; i < nns.size(); i++) {
-      int j = nns[i];
+      S j = nns[i];
       if (j == last)
-	continue;
+        continue;
       last = j;
       nns_dist.push_back(make_pair(Distance::distance(v, _get(j)->v, _f), j));
     }
@@ -496,62 +557,4 @@ protected:
   }
 };
 
-template<typename T, typename Distance>
-class AnnoyIndexPython : public AnnoyIndex<T, Distance > {
-public:
-  AnnoyIndexPython(int f): AnnoyIndex<T, Distance>(f) {}
-  void add_item_py(int item, const python::list& v) {
-    vector<T> w;
-    for (int z = 0; z < this->_f; z++)
-      w.push_back(python::extract<T>(v[z]));
-
-    add_item(item, &w[0]);
-  }
-  python::list get_nns_by_item_py(int item, size_t n) {
-    vector<int> result;
-    this->get_nns_by_item(item, n, &result);
-    python::list l;
-    for (size_t i = 0; i < result.size(); i++)
-      l.append(result[i]);
-    return l;
-  }
-  python::list get_nns_by_vector_py(python::list v, size_t n) {
-    vector<T> w(this->_f);
-    for (int z = 0; z < this->_f; z++)
-      w[z] = python::extract<T>(v[z]);
-    vector<int> result;
-    get_nns_by_vector(&w[0], n, &result);
-    python::list l;
-    for (size_t i = 0; i < result.size(); i++)
-      l.append(result[i]);
-    return l;
-  }
-  python::list get_item_vector_py(int item) {
-    const typename Distance::node* m = this->_get(item);
-    const T* v = m->v;
-    python::list l;
-    for (int z = 0; z < this->_f; z++) {
-      l.append(v[z]);
-    }
-    return l;
-  }
-};
-
-template<typename C>
-void expose_methods(python::class_<C> c) {
-  c.def("add_item",          &C::add_item_py)
-    .def("build",             &C::build)
-    .def("save",              &C::save)
-    .def("load",              &C::load)
-    .def("get_distance",      &C::get_distance)
-    .def("get_nns_by_item",   &C::get_nns_by_item_py)
-    .def("get_nns_by_vector", &C::get_nns_by_vector_py)
-    .def("get_item_vector",   &C::get_item_vector_py)
-    .def("get_n_items",       &C::get_n_items);
-}
-
-BOOST_PYTHON_MODULE(annoylib)
-{
-  expose_methods(python::class_<AnnoyIndexPython<float, Angular<float> > >("AnnoyIndexAngular", python::init<int>()));
-  expose_methods(python::class_<AnnoyIndexPython<float, Euclidean<float> > >("AnnoyIndexEuclidean", python::init<int>()));
-}
+#endif
