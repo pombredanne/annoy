@@ -14,9 +14,29 @@
 
 from .annoylib import *
 
-def AnnoyIndex(f, metric='angular'):
-    if metric == 'angular':
-        return AnnoyIndexAngular(f)
-    elif metric == 'euclidean':
-        return AnnoyIndexEuclidean(f)
+class AnnoyIndex(Annoy):
+    def __init__(self, f, metric='angular'):
+        """
+        :param metric: 'angular' or 'euclidean'
+        """
+        self.f = f
+        super(AnnoyIndex, self).__init__(f, metric)
 
+    def check_list(self, vector):
+        if type(vector) != list:
+            vector = list(vector)
+        if len(vector) != self.f:
+            raise IndexError('Vector must be of length %d' % self.f)
+        return vector
+
+    def add_item(self, i, vector):
+        # Wrapper to convert inputs to list
+        return super(AnnoyIndex, self).add_item(i, self.check_list(vector))
+
+    def get_nns_by_vector(self, vector, n, search_k=-1, include_distances=False):
+        # Same
+        return super(AnnoyIndex, self).get_nns_by_vector(self.check_list(vector), n, search_k, include_distances)
+
+    def get_nns_by_item(self, i, n, search_k=-1, include_distances=False):
+        # Wrapper to support named arguments
+        return super(AnnoyIndex, self).get_nns_by_item(i, n, search_k, include_distances)

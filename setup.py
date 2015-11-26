@@ -16,6 +16,7 @@
 # the License.
 
 from setuptools import setup, Extension
+import codecs
 import os
 import sys
 
@@ -24,28 +25,39 @@ readme_note = """\
 
    For the latest source, discussion, etc, please visit the
    `GitHub repository <https://github.com/spotify/annoy>`_\n\n
+
+.. image:: https://img.shields.io/github/stars/spotify/annoy.svg
+    :target: https://github.com/spotify/annoy
+
 """
 
-with open('README.rst') as fobj:
+with codecs.open('README.rst', encoding='utf-8') as fobj:
     long_description = readme_note + fobj.read()
 
 
 setup(name='annoy',
-      version='1.0.5',
+      version='1.6.2',
       description='Approximate Nearest Neighbors in C++/Python optimized for memory usage and loading/saving to disk.',
       packages=['annoy'],
-      ext_modules=[Extension('annoy.annoylib', ['src/annoymodule.cc'], libraries=['boost_python'])],
+      ext_modules=[
+        Extension(
+            'annoy.annoylib', ['src/annoymodule.cc'],
+            depends=['src/annoylib.h', 'src/kissrandom.h', 'src/mman.h'],
+            extra_compile_args=['-O3', '-march=native', '-ffast-math'],
+        )
+      ],
       long_description=long_description,
       author='Erik Bernhardsson',
-      author_email='erikbern@spotify.com',
+      author_email='mail@erikbern.com',
       url='https://github.com/spotify/annoy',
       license='Apache License 2.0',
       classifiers=[
           'Development Status :: 5 - Production/Stable',
           'Programming Language :: Python',
-          'Programming Language :: Python :: 2',
           'Programming Language :: Python :: 2.6',
           'Programming Language :: Python :: 2.7',
+          'Programming Language :: Python :: 3.3',
+          'Programming Language :: Python :: 3.4',
       ],
       keywords='nns, approximate nearest neighbor search',
       setup_requires=['nose>=1.0']
