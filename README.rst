@@ -37,12 +37,12 @@ Annoy was built by `Erik Bernhardsson <http://www.erikbern.com>`__ in a couple o
 Summary of features
 -------------------
 
-* Euclidean distance or cosine similarity (using the distance of the normalized vectors)
+* Euclidean distance or cosine distance (where cosine distance uses Euclidean distance of normalized vectors which equals 2-2*cosine similarity)
 * Works better if you don't have too many dimensions (like <100) but seems to perform surprisingly well even up to 1,000 dimensions
 * Small memory usage
 * Lets you share memory between multiple processes
 * Index creation is separate from lookup (in particular you can not add more items once the tree has been created)
-* Native Python support, tested with 2.6, 2.7, 3.3, 3.4
+* Native Python support, tested with 2.6, 2.7, 3.3, 3.4, 3.5
 
 Python code example
 -------------------
@@ -56,7 +56,7 @@ Python code example
   t = AnnoyIndex(f)  # Length of item vector that will be indexed
   for i in xrange(1000):
       v = [random.gauss(0, 1) for z in xrange(f)]
-          t.add_item(i, v)
+      t.add_item(i, v)
 
   t.build(10) # 10 trees
   t.save('test.ann')
@@ -77,7 +77,7 @@ Full Python API
 * ``a.build(n_trees)`` builds a forest of ``n_trees`` trees. More trees gives higher precision when querying. After calling ``build``, no more items can be added.
 * ``a.save(fn)`` saves the index to disk.
 * ``a.load(fn)`` loads (mmaps) an index from disk.
-* ``a.unload(fn)`` unloads.
+* ``a.unload()`` unloads.
 * ``a.get_nns_by_item(i, n, search_k=-1, include_distances=False)`` returns the ``n`` closest items. During the query it will inspect up to ``search_k`` nodes which defaults to ``n_trees * n`` if not provided. ``search_k`` gives you a run-time tradeoff between better accuracy and speed. If you set ``include_distances`` to ``True``, it will return a 2 element tuple with two lists in it: the second one containing all corresponding distances.
 * ``a.get_nns_by_vector(v, n, search_k=-1, include_distances=False)`` same but query by vector ``v``.
 * ``a.get_item_vector(i)`` returns the vector for item ``i`` that was previously added.
@@ -110,6 +110,8 @@ More info
 
 * `Dirk Eddelbuettel <http://dirk.eddelbuettel.com/>`__ provides an `R version of Annoy <http://dirk.eddelbuettel.com/code/rcpp.annoy.html>`__.
 * `Andy Sloane <http://www.a1k0n.net/>`__ provides a `Java version of Annoy <https://github.com/spotify/annoy-java>`__ although currently limited to cosine and read-only.
+* There is `experimental support for Go <https://github.com/spotify/annoy/blob/master/README_GO.rst>`__ provided by Taneli Leppä.
+* Boris Nagaev wrote `Lua bindings <https://github.com/spotify/annoy/blob/master/README_Lua.md>`__.
 * `Presentation from New York Machine Learning meetup <http://www.slideshare.net/erikbern/approximate-nearest-neighbor-methods-and-vector-models-nyc-ml-meetup>`__ about Annoy
 * Radim Řehůřek's blog posts comparing Annoy to a couple of other similar Python libraries: `Intro <http://radimrehurek.com/2013/11/performance-shootout-of-nearest-neighbours-intro/>`__, `Contestants <http://radimrehurek.com/2013/12/performance-shootout-of-nearest-neighbours-contestants/>`__, `Querying <http://radimrehurek.com/2014/01/performance-shootout-of-nearest-neighbours-querying/>`__
 * `ann-benchmarks <https://github.com/erikbern/ann-benchmarks>`__ is a benchmark for several approximate nearest neighbor libraries. Annoy seems to be fairly competitive, especially at higher precisions:

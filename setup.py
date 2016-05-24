@@ -34,16 +34,21 @@ readme_note = """\
 with codecs.open('README.rst', encoding='utf-8') as fobj:
     long_description = readme_note + fobj.read()
 
+if os.environ.get('TRAVIS') == 'true':
+    # Resolving some annoying issue
+    travis_extra_compile_args = ['-mno-avx']
+else:
+    travis_extra_compile_args = []
 
 setup(name='annoy',
-      version='1.6.2',
+      version='1.8.0',
       description='Approximate Nearest Neighbors in C++/Python optimized for memory usage and loading/saving to disk.',
       packages=['annoy'],
       ext_modules=[
         Extension(
             'annoy.annoylib', ['src/annoymodule.cc'],
             depends=['src/annoylib.h', 'src/kissrandom.h', 'src/mman.h'],
-            extra_compile_args=['-O3', '-march=native', '-ffast-math'],
+            extra_compile_args=['-O3', '-march=native', '-ffast-math'] + travis_extra_compile_args,
         )
       ],
       long_description=long_description,
@@ -58,6 +63,7 @@ setup(name='annoy',
           'Programming Language :: Python :: 2.7',
           'Programming Language :: Python :: 3.3',
           'Programming Language :: Python :: 3.4',
+          'Programming Language :: Python :: 3.5',
       ],
       keywords='nns, approximate nearest neighbor search',
       setup_requires=['nose>=1.0']

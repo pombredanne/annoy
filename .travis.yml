@@ -1,13 +1,22 @@
 language: python
 
-python:
-  - "2.7"
-  - "2.6"
-  - "3.3"
-  - "3.4"
+env:
+  matrix:
+    - TOXENV=py26
+    - TOXENV=py27
+    - TOXENV=py33
+    - TOXENV=py34
+    - TOXENV=py35
+    - TOXENV=go
+    - TOXENV=lua LUA="lua 5.1"
+    - TOXENV=lua LUA="lua 5.2"
+    - TOXENV=lua LUA="lua 5.3"
+    - TOXENV=lua LUA="luajit 2.0"
+    - TOXENV=lua LUA="luajit 2.1"
 
 install:
-  - pip install numpy
-  - pip install .
+  - pip install tox
 
-script: python setup.py nosetests
+script:
+  - TRAVIS=true tox
+
