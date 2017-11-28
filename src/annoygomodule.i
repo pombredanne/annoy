@@ -70,11 +70,27 @@
   }
 %}
 
+
+%typemap(gotype) (const char *) "string"
+
+%typemap(in) (const char *)
+%{
+  $1 = (char *)calloc((((_gostring_)$input).n + 1), sizeof(char));
+  strncpy($1, (((_gostring_)$input).p), ((_gostring_)$input).n);
+%}
+
+%typemap(freearg) (const char *)
+%{
+  free($1);
+%}
+
+
 /* Let's just grab the original header file here */
 %include "annoygomodule.h"
 
 %feature("notabstract") GoAnnoyIndexAngular;
 %feature("notabstract") GoAnnoyIndexEuclidean;
+%feature("notabstract") GoAnnoyIndexManhattan;
 
 
 

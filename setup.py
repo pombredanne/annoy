@@ -40,15 +40,27 @@ if os.environ.get('TRAVIS') == 'true':
 else:
     travis_extra_compile_args = []
 
+# Not all CPUs have march as a tuning parameter
+import platform
+cputune = ['-march=native',]
+if platform.machine() == "ppc64le":
+    cputune = ['-mcpu=native',]
+
+if os.name != 'nt':
+    compile_args = ['-O3', '-ffast-math', '-fno-associative-math']
+else:
+    compile_args = []
+    cputune = []
+
 setup(name='annoy',
-      version='1.8.0',
+      version='1.10.0',
       description='Approximate Nearest Neighbors in C++/Python optimized for memory usage and loading/saving to disk.',
       packages=['annoy'],
       ext_modules=[
         Extension(
             'annoy.annoylib', ['src/annoymodule.cc'],
             depends=['src/annoylib.h', 'src/kissrandom.h', 'src/mman.h'],
-            extra_compile_args=['-O3', '-march=native', '-ffast-math'] + travis_extra_compile_args,
+            extra_compile_args=compile_args + cputune + travis_extra_compile_args
         )
       ],
       long_description=long_description,
@@ -64,6 +76,7 @@ setup(name='annoy',
           'Programming Language :: Python :: 3.3',
           'Programming Language :: Python :: 3.4',
           'Programming Language :: Python :: 3.5',
+          'Programming Language :: Python :: 3.6',
       ],
       keywords='nns, approximate nearest neighbor search',
       setup_requires=['nose>=1.0']
